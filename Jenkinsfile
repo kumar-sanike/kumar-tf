@@ -1,0 +1,107 @@
+  pipeline {
+    agent any
+    stages {
+      // [START tf-init]
+      stage('TF Init') {
+        when { anyOf {branch "rnd";branch "main";changeRequest()}}
+        steps {
+          sh '''
+          if [[ $CHANGE_TARGET ]]; then
+            TARGET_ENV=$CHANGE_TARGET
+          else
+            TARGET_ENV=$BRANCH_NAME
+          fi
+          if [ -d "./${TARGET_ENV}/" ]; then
+            cd ./${TARGET_ENV}
+            terraform init
+          else
+            for dir in ./*/
+            do 
+              cd ${dir}
+              env=${dir%*/}
+              env=${env#*/}
+              echo ""
+              echo "*************** TERRAFOM INIT and VALIDATE ******************"
+              echo "******* At environment: ${env} ********"
+              echo "*************************************************"
+              terraform init || exit 1
+              terraform validate || exit 1
+              cd ../
+            done
+          fi'''
+        }      
+      }
+
+      // [START tf-plan]
+      stage('TF plan') {
+      when { anyOf {branch "rnd";branch "main";changeRequest() } }
+      steps {
+        sh '''
+          if [[ $CHANGE_TARGET ]]; then
+            TARGET_ENV=$CHANGE_TARGET
+          else
+            TARGET_ENV=$BRANCH_NAME
+          fi
+         
+          if [ -d "./${TARGET_ENV}/" ]; then
+            cd ./${TARGET_ENV}
+            terraform plan -out myplan
+          else
+            for dir in ./*/
+            do 
+              cd ${dir}
+              env=${dir%*/}
+              env=${env#*/}
+              echo ""
+              echo "*************** TERRAFOM PLAN ******************"
+              echo "******* At environment: ${env} ********"
+              echo "*************************************************"
+              terraform plan || exit 1
+              cd ../
+            done
+          fi'''
+        }
+      }
+
+      //stage('Approval') {
+        //steps {
+          //script {
+            //def userInput = input(id: 'confirm', message: 'Apply Terraform?', parameters: [ [$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Apply terraform', name: 'confirm'] ])
+          //}
+        //}
+      //}
+
+      stage('TF Apply') {
+        when { anyOf {branch "rnd";branch "main" } }
+        steps {
+          //sh 'cd ./dev/ && terraform apply -input=false myplan'
+          script {
+            def userInput = input(id: 'confirm', message: 'Apply Terraform?', parameters: [ [$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Apply terraform', name: 'confirm'] ])
+          }
+          sh '''
+          TARGET_ENV=$BRANCH_NAME
+          if [ -d "./${TARGET_ENV}/" ]; then
+            cd ./${TARGET_ENV}
+            terraform apply -input=false myplan
+          else
+            echo "*************** SKIPPING APPLY ******************"
+            echo "Branch '$TARGET_ENV' does not represent an official environment."
+            echo "*************************************************"
+          fi'''
+        }
+      }
+    } 
+    stages {
+	   stage ('ok') {
+		steps {
+		   echo "ok"
+		}
+	   }
+	}
+	post {
+		always {
+		    emailtextbody: 'A Text EMail', recipientproviders: [[$class: 'DeveloperRecipientProvider'],[$class: 'RequestRecipientProvider']], subject: 'test'
+		}
+	}
+
+  }
